@@ -1,5 +1,9 @@
 dask[complete]~=2.15.0
+gensim~=3.8.2
 jsonlines~=1.2.0
+numpy~=1.17.4
 pandas~=1.0.3
 ratelimit~=2.2.1
+regex~=2020.4.4
 requests~=2.23.0
+spacy~=2.2.4

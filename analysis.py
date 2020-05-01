@@ -1,86 +1,136 @@
-"""analysis.py: process subreddit jsonl dumps"""
+"""analysis.py: This module uses a fastText model to predict cosine
+similarity between reddit comments and a set of queries
 
+"""
+
+import logging
 import json
-import re
 
 import dask
 import dask.bag as db
 import dask.dataframe as dd
+import numpy as np
 import pandas as pd
-import yaml
+import regex
+import spacy
+
+from model import FastTextModel
 
 
-def kws(record, props, patterns):
-    """Assign categories and drop columns"""
-    text = "".join(record[prop] for prop in props if record.get(prop))
-    categories = []
+def regex_replace(string):
+    """Initial comment preprocessing with regex substitutions"""
+    patterns = [
+        (r"^&gt;.*", ""),  # Quoted comment replys
+        (r"\[([^\]]+)\]\(([^)]+)\)", "\\1"),  # Markdown links
+        (r"\s+", " "),  # Repeated whitespace
+        (r"[^\x00-\x7f]", ""),  # Non-ASCII characters
+        (r"(http|www)\S+", ""),  # URLs
+    ]
 
-    for category, pattern in patterns.items():
-        if re.findall(pattern, text, flags=re.IGNORECASE):
-            categories.append(category)
+    for pattern, repl in patterns:
+        string = regex.sub(pattern, repl, string, flags=regex.MULTILINE)
 
-    return {
-        "created_utc": record["created_utc"],
-        "subreddit": record["subreddit"],
-        "cat": categories,
-    }
+    return string.strip()
 
 
-def process(jsonl, patterns, props):
-    """Subreddit data processing pipeline.
+def tokenize(docs):
+    """Tokenize documents with spacy"""
+    nlp = spacy.load("en_core_web_sm")
+    nlp.disable_pipes(["tagger", "parser", "ner"])
 
-    Use bag for initial keyword calculation and filtering, was getting
-    type errors when using dd.read_json. See this link for more
-    information: https://stackoverflow.com/q/54992783/4501508).
+    def lemmify(doc):
+        return [token.lemma_ for token in doc if not (token.is_stop | token.is_punct)]
 
-    """
+    nlp.add_pipe(lemmify)
+    nlp.add_pipe(lambda doc: " ".join(doc).lower(), name="stringify")
 
-    bag = db.read_text(jsonl, blocksize="10MiB").map(json.loads)
-    df = bag.map(kws, props, patterns).to_dataframe()
+    return list(nlp.pipe(docs))
 
+
+def preprocess(jsonl):
+    """Ingest data and preprocess comment text"""
+    bag = (
+        db.read_text(jsonl, blocksize="10MiB")
+        .map(json.loads)
+        .map(
+            lambda r: {
+                "created_utc": r["created_utc"],
+                "subreddit": r["subreddit"],
+                "text": regex_replace(r["body"]),
+            }
+        )
+    )
+    df = bag.to_dataframe()
+
+    df = df[df["text"].str.len() > 30]
     df["created_utc"] = dd.to_datetime(df["created_utc"], unit="s")
-    df = df.set_index("created_utc")
 
-    counts = df.groupby([pd.Grouper(freq="1d"), "subreddit"]).size().to_frame("totals")
+    ## dask and spacy multiprocessing don't play nicely
+    ## nlp.pipe might not be the fastest way to preprocessing
+    df = df.compute()
+    df["tokens"] = tokenize(df["text"].astype("unicode"))
+    df = df.drop("text", axis=1)
 
-    df = df.explode("cat")
-    df["cat"] = df["cat"].fillna("nocat").astype("category").cat.as_known()
+    return df
 
-    agg = (
-        df.groupby([pd.Grouper(freq="1d"), "subreddit", "cat"])
-        .size()
-        .to_frame("count")
-        .reset_index()
-        .join(counts, on=["created_utc", "subreddit"])
+
+def aggregate(df, threshold=0.2):
+    """Threshold similarity scores and aggregate similarity df"""
+    melted = (
+        df.drop("tokens", axis=1)
+        .melt(id_vars=["created_utc", "subreddit"], var_name="cat", value_name="sim")
+        .assign(cutoff=lambda x: x["sim"] > threshold)
+        .set_index("created_utc")
     )
 
-    agg["freq"] = agg["count"] / agg["totals"]
+    agg = (
+        melted.groupby([pd.Grouper(freq="1d"), "subreddit", "cat"])
+        .agg({"cutoff": ["count", np.count_nonzero]})
+        .droplevel(0, axis=1)
+        .assign(score=lambda x: x["count_nonzero"] / x["count"])
+    )
 
     return agg
 
 
-def main(termf, subsf, comsf, subprops, comprops, subsout, comsout):
-    """Run everything, change dask config if multiprocessing is causing problems"""
-
-    with open(termf) as f:
-        terms = yaml.load(f, Loader=yaml.Loader)
-        patterns = {cat: "|".join(kw) for cat, kw in terms.items()}
+def main(termf, comsf, resultsf, train=True, saved_model=None):
+    """Run analysis pipeline"""
 
     with dask.config.set(scheduler="processes"):
-        subs = process(subsf, patterns, subprops)
-        subs.to_csv(subsout, index=False, single_file=True)
+        df = preprocess(comsf)
 
-        coms = process(comsf, patterns, comprops)
-        coms.to_csv(comsout, index=False, single_file=True)
+    sentences = [str(doc).split() for doc in df["tokens"].to_list()]
+
+    if train:
+        ## Setup logging for model train
+        template = "%(asctime)s : %(levelname)s : %(message)s"
+        logging.basicConfig(format=template, level=logging.INFO)
+
+        model = FastTextModel()
+        model.train(sentences)
+        model.save("models")
+
+    elif saved_model:
+        model = FastTextModel()
+        model.load(saved_model)
+
+    with open(termf) as f:
+        terms = json.load(f)
+        queries = terms.keys()
+        tokens = [doc.split() for doc in tokenize(list(terms.values()))]
+
+    for query, token in zip(queries, tokens):
+        df[query] = model.similarity(token, sentences)
+
+    agg = aggregate(df)
+    agg.to_csv(resultsf)
 
 
 if __name__ == """__main__""":
     main(
-        termf="config/coronaterms.yaml",
-        subsf="data/subs.jsonl",
+        termf="data/terms.json",
         comsf="data/coms.jsonl",
-        subprops=["title", "selftext"],
-        comprops=["body"],
-        subsout="data/subs_agg.csv",
-        comsout="data/coms_agg.csv",
+        train=True,
+        saved_model=None,
+        resultsf="data/scores.csv",
     )
