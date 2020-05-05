@@ -14,7 +14,7 @@ import pandas as pd
 import regex
 import spacy
 
-from model import FastTextModel
+from model import W2vModel
 
 
 def regex_replace(string):
@@ -112,12 +112,12 @@ def main(termf, comsf, resultsf, train=True, saved_model=None):
         template = "%(asctime)s : %(levelname)s : %(message)s"
         logging.basicConfig(format=template, level=logging.INFO)
 
-        model = FastTextModel()
+        model = W2vModel()
         model.train(sentences)
         model.save("models")
 
     elif saved_model:
-        model = FastTextModel()
+        model = W2vModel()
         model.load(saved_model)
 
     with open(termf) as f:

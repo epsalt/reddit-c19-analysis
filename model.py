@@ -7,11 +7,11 @@ from multiprocessing import cpu_count
 import os
 
 from gensim.corpora import Dictionary
-from gensim.models import FastText, TfidfModel, WordEmbeddingSimilarityIndex
+from gensim.models import WordEmbeddingSimilarityIndex, Word2Vec
 from gensim.similarities import SoftCosineSimilarity, SparseTermSimilarityMatrix
 
 
-class FastTextModel:
+class W2vModel:
     """fastText model class for training and soft cosine simularity
     calculation. Mostly copied from this tutorial: https://git.io/JfOPw
 
@@ -21,49 +21,36 @@ class FastTextModel:
         self.dictionary = None
         self.ft = None
         self.matrix = None
-        self.tfidf = None
 
     def train(self, sentences):
-        """Train a TF-IDF and fastText model with sentences"""
+        """Train a fastText model with sentences"""
 
         dictionary = Dictionary(sentences)
-        tfidf = TfidfModel([dictionary.doc2bow(text) for text in sentences])
 
-        ft = FastText(size=160, min_count=3)
-        ft.build_vocab(sentences=sentences)
-        ft.train(
-            sentences=sentences,
-            epochs=5,
-            total_examples=ft.corpus_count,
-            total_words=ft.corpus_total_words,
-            workers=cpu_count(),
-        )
+        ft = Word2Vec(sentences, workers=cpu_count(), min_count=5, size=300, seed=12345)
 
         index = WordEmbeddingSimilarityIndex(ft.wv)
-        matrix = SparseTermSimilarityMatrix(index, dictionary, tfidf=tfidf)
+        matrix = SparseTermSimilarityMatrix(index, dictionary)
 
         self.dictionary = dictionary
         self.ft = ft
         self.matrix = matrix
-        self.tfidf = tfidf
 
     def similarity(self, query, documents):
         """Caclulate cosine simularity between query and all documents"""
 
-        query = self.tfidf[self.dictionary.doc2bow(query)]
-        index = SoftCosineSimilarity(
-            self.tfidf[[self.dictionary.doc2bow(document) for document in documents]],
-            self.matrix,
-        )
-        similarities = index[query]
+        bow_query = self.dictionary.doc2bow(query)
+        bow_docs = [self.dictionary.doc2bow(document) for document in documents]
+
+        index = SoftCosineSimilarity(bow_docs, self.matrix)
+        similarities = index[bow_query]
 
         return similarities
 
     def load(self, directory):
         """Load model files from a directory"""
 
-        self.ft = FastText.load(os.path.join(directory, "ft.model"))
-        self.tfidf = TfidfModel.load(os.path.join(directory, "tfidf.model"))
+        self.ft = Word2Vec.load(os.path.join(directory, "w2v.model"))
         self.dictionary = Dictionary.load(os.path.join(directory, "dict.model"))
         self.matrix = SparseTermSimilarityMatrix.load(
             os.path.join(directory, "stsm.model")
@@ -72,7 +59,8 @@ class FastTextModel:
     def save(self, directory):
         """Save model files to a directory"""
 
-        self.ft.save(os.path.join(directory, "ft.model"))
-        self.tfidf.save(os.path.join(directory, "tfidf.model"))
+        os.makedirs(directory, exist_ok=True)
+
+        self.ft.save(os.path.join(directory, "w2v.model"))
         self.matrix.save(os.path.join(directory, "stsm.model"))
         self.dictionary.save(os.path.join(directory, "dict.model"))
