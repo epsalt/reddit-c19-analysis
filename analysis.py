@@ -80,7 +80,7 @@ def preprocess(jsonl):
     return df
 
 
-def aggregate(df, threshold=0.2):
+def aggregate(df, threshold=0.25):
     """Threshold similarity scores and aggregate similarity df"""
     melted = (
         df.drop("tokens", axis=1)

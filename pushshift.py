@@ -88,8 +88,8 @@ def main(subsout, comsout, date_range, subreddits):
 
 if __name__ == """__main__""":
     main(
-        subsout="data/subs.jsonl",
-        comsout="data/coms.jsonl",
-        date_range=(datetime(2020, 1, 1), datetime(2020, 4, 20)),
+        subsout="data/subs_may.jsonl",
+        comsout="data/coms_may.jsonl",
+        date_range=(datetime(2020, 1, 1), datetime(2020, 5, 1)),
         subreddits=["calgary", "edmonton", "alberta"],
     )
