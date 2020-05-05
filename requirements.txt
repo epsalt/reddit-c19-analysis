@@ -1,3 +1,4 @@
+altair~=4.1.0
 dask[complete]~=2.15.0
 gensim~=3.8.2
 jsonlines~=1.2.0

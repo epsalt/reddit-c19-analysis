@@ -1,0 +1,5 @@
+[
+    {"date": "2020-01-15", "label": "A", "event": "Canada's first case"},
+    {"date": "2020-03-05", "label": "B", "event": "Alberta's first case"},
+    {"date": "2020-03-17", "label": "C", "event": "Canada Declares Public Health Emergency"}
+]
