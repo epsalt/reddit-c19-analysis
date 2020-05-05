@@ -39,7 +39,11 @@ def tokenize(docs):
     nlp.disable_pipes(["tagger", "parser", "ner"])
 
     def lemmify(doc):
-        return [token.lemma_ for token in doc if not (token.is_stop | token.is_punct)]
+        return [
+            token.lemma_
+            for token in doc
+            if not (token.is_stop | token.is_punct | token.is_space | token.is_digit)
+        ]
 
     nlp.add_pipe(lemmify)
     nlp.add_pipe(lambda doc: " ".join(doc).lower(), name="stringify")
@@ -69,6 +73,8 @@ def preprocess(jsonl):
     ## nlp.pipe might not be the fastest way to preprocessing
     df = df.compute()
     df["tokens"] = tokenize(df["text"].astype("unicode"))
+
+    df = df[df["tokens"] != ""]
     df = df.drop("text", axis=1)
 
     return df
