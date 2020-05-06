@@ -1,4 +1,4 @@
-"""analysis.py: This module uses a fastText model to predict cosine
+"""Analysis.py: This module uses a word2vec model to predict cosine
 similarity between reddit comments and a set of queries
 
 """

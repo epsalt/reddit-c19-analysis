@@ -1,5 +1,5 @@
-"""model.py This module implements a FastText model which can be used
-to calculate soft cosine matrix simularity.
+"""model.py This module trains a word2vec model which can be used to
+calculate soft cosine matrix simularity.
 
 """
 
@@ -12,7 +12,7 @@ from gensim.similarities import SoftCosineSimilarity, SparseTermSimilarityMatrix
 
 
 class W2vModel:
-    """fastText model class for training and soft cosine simularity
+    """word2vec model class for training and soft cosine simularity
     calculation. Mostly copied from this tutorial: https://git.io/JfOPw
 
     """
@@ -23,7 +23,7 @@ class W2vModel:
         self.matrix = None
 
     def train(self, sentences):
-        """Train a fastText model with sentences"""
+        """Train a word2vec model with sentences"""
 
         dictionary = Dictionary(sentences)
 
